@@ -1,0 +1,26 @@
+{
+  "name": "vpietila-rocshmem-dev-container",
+  "image": "rocm/pytorch-private:semianalysiswork-FAv3-TE-1.11-hipblaslt-305a144-Jan15-llmfoundry-ib-ckdev",
+  "runArgs": ["--device=/dev/kfd", "--device=/dev/dri", "--security-opt=seccomp=unconfined", "--ipc=host", "--group-add=video", "--cap-add=SYS_PTRACE",
+                 "--name=vpietila-rocshmem-dev-container", "--rm"],
+  "customizations": {
+      "vscode": {
+          "extensions": [
+           "ms-vscode.cpptools-extension-pack",
+           "eamodio.gitlens",
+           "ms-python.python",
+           "benjamin-simmonds.pythoncpp-debug",
+           "ms-azuretools.vscode-docker",
+           "mechatroner.rainbow-csv"
+        ]
+      }
+  },
+  "containerEnv": {
+   "LANG": "C.UTF-8",
+   "HIP_VISIBLE_DEVICES": "6,7"
+   },
+  "mounts": [
+     "source=${localEnv:HOME}/.ssh,target=/root/.ssh,type=bind,consistency=cached",
+     "source=${localEnv:HOME}/git/,target=/git,type=bind,consistency=cached"
+  ]
+}
