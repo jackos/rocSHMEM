@@ -35,6 +35,7 @@ target_sources(
     mpi_instance.cpp
     rocshmem_gpu.cpp
     rocshmem.cpp
+    rocshmem_c_api.cpp
     team.cpp
     team_tracker.cpp
     util.cpp
@@ -53,7 +54,9 @@ if (BUILD_CODE_COVERAGE)
   set(ROCSHMEM_COMPILE_FLAGS ${ROCSHMEM_COMPILE_FLAGS} -fprofile-instr-generate -fcoverage-mapping)
   target_link_options(${PROJECT_NAME} PUBLIC -fprofile-instr-generate)
 endif()
-target_compile_options(${PROJECT_NAME} PUBLIC ${ROCSHMEM_COMPILE_FLAGS})
+if (ROCSHMEM_COMPILE_FLAGS)
+  target_compile_options(${PROJECT_NAME} PUBLIC ${ROCSHMEM_COMPILE_FLAGS})
+endif()
 #target_link_options(
   #${PROJECT_NAME}
   #PUBLIC

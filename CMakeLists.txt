@@ -67,6 +67,8 @@ option(BUILD_TOOLS "Build binary tools (e.g., rocshmem_info)" ON)
 
 option(BUILD_LOCAL_GPU_TARGET_ONLY "Build only for GPUs detected on this machine" OFF)
 option(BUILD_CODE_COVERAGE "Build with code coverage flags (gcc only)" OFF)
+option(BUILD_BITCODE_LIBRARY "Build LLVM bitcode library for device symbols" OFF)
+option(BUILD_SHARED_LIBS "Build host-side symbols as a dynamic library" OFF)
 
 
 ###############################################################################
@@ -133,7 +135,13 @@ message(STATUS "Compiling for ${GPU_TARGETS}")
 # CREATE ROCSHMEM LIBRARY
 ###############################################################################
 if (NOT BUILD_TESTS_ONLY)
-  add_library(${PROJECT_NAME})
+  if (BUILD_SHARED_LIBS)
+    add_library(${PROJECT_NAME} SHARED)
+    message(STATUS "Building rocSHMEM as a shared library")
+  else()
+    add_library(${PROJECT_NAME} STATIC)
+    message(STATUS "Building rocSHMEM as a static library")
+  endif()
   add_library(roc::${PROJECT_NAME} ALIAS ${PROJECT_NAME})
   add_subdirectory(src)
 
@@ -221,6 +229,72 @@ if (NOT BUILD_TESTS_ONLY)
     DESCRIPTION "ROCm OpenSHMEM (rocSHMEM)"
     MAINTAINER "rocSHMEM Maintainer <rocshmem-maintainer@amd.com>"
   )
+
+  #############################################################################
+  # BITCODE LIBRARY CONFIGURATION
+  #############################################################################
+  if (BUILD_BITCODE_LIBRARY)
+    # Find clang for bitcode compilation - use LLVM 20 for compatibility with ROCm
+    find_program(CLANG_EXECUTABLE clang-20 REQUIRED)
+    find_program(OPT_EXECUTABLE opt-20 REQUIRED)
+    find_program(LLVM_DIS_EXECUTABLE llvm-dis-20 REQUIRED)
+    find_program(LLVM_AS_EXECUTABLE llvm-as-20 REQUIRED)
+
+    # Set bitcode compilation parameters
+    set(BITCODE_CXX_STD "c++17")
+
+    # Extract first GPU target for bitcode (e.g., gfx90a from gfx90a:xnack-)
+    list(GET GPU_TARGETS 0 FIRST_GPU_TARGET)
+    string(REGEX REPLACE ":.*" "" BITCODE_GPU_ARCH "${FIRST_GPU_TARGET}")
+
+    message(STATUS "Building bitcode library for GPU arch: ${BITCODE_GPU_ARCH}")
+
+    # Define the bitcode build directory
+    set(BITCODE_BUILD_DIR ${CMAKE_CURRENT_BINARY_DIR}/bitcode)
+    file(MAKE_DIRECTORY ${BITCODE_BUILD_DIR})
+
+    # Prepare MPI include directories with -I prefix
+    set(MPI_INCLUDE_FLAGS "")
+    foreach(MPI_INCLUDE_DIR ${MPI_CXX_INCLUDE_DIRS})
+      list(APPEND MPI_INCLUDE_FLAGS "-I${MPI_INCLUDE_DIR}")
+    endforeach()
+
+    # Custom command to build the bitcode library
+    add_custom_command(
+      OUTPUT ${CMAKE_CURRENT_BINARY_DIR}/lib/librocshmem_device.bc
+      COMMAND ${CLANG_EXECUTABLE} -c -Wno-switch -emit-llvm -O0
+              -std=${BITCODE_CXX_STD} -x hip
+              --offload-device-only
+              --offload-arch=${BITCODE_GPU_ARCH}
+              -I${CMAKE_CURRENT_SOURCE_DIR}/include
+              -I${CMAKE_BINARY_DIR}/include
+              -I${CMAKE_BINARY_DIR}/include/rocshmem
+              ${MPI_INCLUDE_FLAGS}
+              -D__HIP_PLATFORM_AMD__
+              -D__clang_llvm_bitcode_lib__
+              ${CMAKE_CURRENT_SOURCE_DIR}/src/rocshmem_gpu.cpp
+              -o ${BITCODE_BUILD_DIR}/librocshmem_device.bc.unoptimized
+      COMMAND ${OPT_EXECUTABLE} --passes='internalize,inline,globaldce'
+              -internalize-public-api-list='rocshmem_*,roc_shmem_*,ROCSHMEM_*,_Z*rocshmem*,_Z*roc_shmem*'
+              ${BITCODE_BUILD_DIR}/librocshmem_device.bc.unoptimized
+              -o ${CMAKE_CURRENT_BINARY_DIR}/lib/librocshmem_device.bc
+      WORKING_DIRECTORY ${BITCODE_BUILD_DIR}
+      DEPENDS src/rocshmem_gpu.cpp
+      COMMENT "Building LLVM bitcode library for rocSHMEM device symbols"
+    )
+
+    # Create a custom target for the bitcode library
+    add_custom_target(librocshmem_device_bitcode ALL
+                      DEPENDS ${CMAKE_CURRENT_BINARY_DIR}/lib/librocshmem_device.bc)
+
+    # Install the bitcode library
+    rocm_install(
+      FILES ${CMAKE_CURRENT_BINARY_DIR}/lib/librocshmem_device.bc
+      DESTINATION ${CMAKE_INSTALL_LIBDIR}
+      PERMISSIONS OWNER_READ OWNER_WRITE OWNER_EXECUTE
+                  GROUP_READ GROUP_EXECUTE WORLD_READ WORLD_EXECUTE
+    )
+  endif()
 endif (NOT BUILD_TESTS_ONLY)
 
 ###############################################################################
